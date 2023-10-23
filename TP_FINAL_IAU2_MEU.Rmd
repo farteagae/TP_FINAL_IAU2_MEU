@@ -1,0 +1,954 @@
+---
+title: "TP_FINAL_IAU2_MEU"
+author: "Felipe Arteaga"
+date: "2023-10-13"
+output: html_document
+---
+
+# **ANÁLISIS DE PARIS (TP FINAL)**
+#### **COLEGIOS**
+###### <span style="color:grey">**París DATA**</span>
+
+En este ultimo ejercicio **"TP FINAL"** continuare con el análisis de información relativa a los colegios en la ciudad de París, de modo tal robustecer el análisis ya realizado incorporando la conectividad de wifi por cada establecimiento con la intención de analizar la accesibilidad a un servicio de internet público por parte de los estudiantes de los distintos colegios.
+
+En primer lugar instalo las librerías que voy a requerir.
+
+```{r}
+options(repos = c(CRAN = "https://cran.r-project.org"))
+
+```
+
+
+```{r}
+library(tidyverse)
+library(sf)
+```
+
+```{r}
+library(ggplot2)
+
+```
+
+Cargo la información de los diferentes barrios de la ciudad de París descargada de la página de París DATA y corroboro su morfología mapeando los datos.
+
+
+```{r}
+paris<- st_read("Data/arrondissements.geojson", stringsAsFactors = TRUE)
+```
+
+```{r}
+ggplot()+
+  geom_sf(data=paris)
+```
+
+
+Con el archivo cargado y corroborado procedo a subir los datos de los establecimientos escolares; colegio. Los mapeo.
+
+
+```{r}
+colegios<- st_read("Data/etablissements-scolaires-colleges.geojson", stringsAsFactors = TRUE)
+```
+```{r}
+names(colegios)
+```
+
+```{r}
+ggplot() +
+    geom_sf(data = paris) +
+  geom_sf(data = colegios, color = "orange")
+```
+
+
+Transformo el archivo de colegios en uno georeferenciado para poder luego hacer un JOIN espacial.
+
+
+```{r}
+cole_geo <- colegios %>% 
+    st_as_sf(coords = c("long", "lat"), crs = 4326)
+```
+```{r}
+class(cole_geo)
+head(cole_geo)
+```
+```{r}
+ggplot(cole_geo)+
+  geom_sf()
+```
+
+
+```{r}
+ggplot()+
+  geom_sf(data=paris, fill="gray75", color="white")+
+  geom_sf(data=cole_geo, aes(color=arr_libelle), alpha=0.5)+
+  labs(title="Escuelas de Paris")
+```
+
+
+A continuación realizo el JOIN espacial entre el archivos de barrios y colegios para poder tener la información de barrios dentro de colegios.
+
+
+```{r}
+cole_geo <- st_join(cole_geo, paris)
+
+```
+
+```{r}
+ggplot()+
+  geom_sf(data=paris)+
+  geom_sf(data=cole_geo, aes(color=arr_libelle), alpha=0.75, show.legend = FALSE)
+```
+
+
+Filtro los valores sin dato.
+
+
+```{r}
+cole_geo <- cole_geo %>%
+  filter(!is.na(arr_libelle))
+```
+
+
+Vuelvo a mapear los barrios y colegios con un color diferente por cada barrio.
+
+
+```{r}
+ggplot()+
+  geom_sf(data=paris)+
+  geom_sf(data=cole_geo, aes(color=arr_libelle), alpha=0.75, show.legend = FALSE)
+```
+
+
+## **PROCESAMIENTO DE DATOS**
+
+Procedo a crear dos columnas/campos nuevos. Uno sobre la cantidad de colegios por barrio y otro de densidad de colegios para lo cual usare la reciente columna creada de cantidad junto a los valores de superficie de cada barrio.
+
+```{r}
+colnames(cole_geo)
+```
+
+
+```{r}
+cole_geo <- cole_geo %>%
+  group_by(l_ar) %>%
+  summarise(cantidad=n(),
+            densidad_cole=mean(cantidad/surface))
+```
+
+
+Vemos que las columnas se crearon correctamente.
+
+
+```{r}
+head(cole_geo)
+```
+
+
+Luego mapeo los datos de densidad de colegios por barrio, sin tener la información volcada sobre los polígonos.
+
+
+```{r}
+ggplot()+
+  geom_sf(data=paris)+
+  geom_sf(data=cole_geo, aes(color=densidad_cole), alpha=0.75, show.legend = FALSE)
+```
+
+
+## **TRASPASO DE INFORMACIÓN A POLÍGONOS**
+
+En consecuencia, decido pasar la data a los polígono correspondientes para lo cual tendré que sacarle la geometría al archivo de colegio para poder realizar un LEFT JOIN ya que esta herramienta sólo une archivos espaciales con no espaciales, no así, dos geográficos a la vez.
+
+
+```{r}
+cole_geo <- cole_geo %>%
+  st_set_geometry(NULL)
+```
+
+```{r}
+head(cole_geo)
+```
+
+
+Se puede apreciar que el archivo se ejecuta correctamente sacando la información geográfica. Ahora realizo el LEFT JOIN y mapeo para verificar que todo haya resultado bien.
+
+
+```{r}
+paris_b <- left_join(paris, cole_geo, by="l_ar")
+```
+
+```{r}
+ggplot()+
+  geom_sf(data=paris_b, aes(fill=densidad_cole))
+```
+
+
+## **DENSIDAD DE COLEGIOS**
+
+Una vez verificado con el mapa, decido editarlo para presentar los resultados finales.
+
+
+```{r}
+ggplot()+
+  geom_sf(data=paris_b, aes(fill=densidad_cole), color="white")+
+    labs(title = "Densidad de colegios en la ciudad de Paris",
+         subtitle = "Barrios de Paris",
+         fill = "Cantidad/sup",
+         caption= "Fuente: Paris DATA") +
+  scale_fill_distiller(palette = "YlOrRd", direction = 1) +
+   theme_void()
+```
+
+
+## **CANTIDAD DE COLEGIOS**
+
+A continuación mostrare la cantidad de colegios por barrio de la ciudad de París con el archivo de Colegios. De esta forma podre analizar cuales son los barrios con mayor cantidad de colegios a través de un gráfico de barras.
+
+
+```{r}
+ggplot(colegios)+
+  geom_bar(aes(x=arr_libelle ))+
+  coord_flip()+
+  labs(title="Cantidad total de colegios por Barrio",
+       x="Barrios",
+       y="Cantidad",
+       caption="Fuente: Paris DATA")+
+  theme(legend.position="top",
+        legend.direction = "horizontal", 
+        legend.title=element_text(size=8, face = "bold"), 
+        legend.text=element_text(size=8), 
+        axis.text.x = element_text(colour = "gray35",size = 6), 
+        axis.text.y = element_text(colour = "gray35",size = 1))
+```
+
+
+Finalmente, mapeo esta información con el archivo de polígonos.
+
+
+```{r}
+ggplot()+
+  geom_sf(data=paris_b, aes(fill=cantidad), color="white")+
+    labs(title = "Cantidad de colegios en la ciudad de Paris",
+         subtitle = "Barrios de Paris",
+         fill = "Cantidad",
+         caption= "Fuente: Paris DATA") +
+  scale_fill_distiller(palette = "YlGnBu", direction = 1) +
+   theme_void()
+```
+
+
+## **CONCLUSIONES**
+
+Decido realizar un resumen estadístico de la información como se puede ver:
+
+
+```{r}
+summary(paris_b)
+```
+
+
+Se puede detectar algunos detalles: 
+
+- El barrio con mayor cantidad de colegios es el distrito 19 Buttes-Chaumont y tiene 65 establecimientos.
+- Los barrios con menor cantidad de colegios son el distrito 1 y 2 (Louvre y Bourse) y ambos tienen 5 establecimientos cada uno.
+- La fuente de todas las observaciones es<https://opendata.paris.fr/pages/home/>
+- La cantidad promedio es de 28 colegios por barrio.
+
+En base al análisis general decido profundizar más en los 5 barrios con mayor cantidad de colegios:
+
+
+```{r}
+ordenado <- paris_b %>%
+  
+arrange(desc(cantidad))
+
+head(ordenado,5)
+```
+
+
+1. <span style="color:red">**Buttes-Chaumont**</span>
+2. <span style="color:red">**Ménilmontant**</span>
+3. <span style="color:red">**Buttes-Montmartre**</span>
+4. Gobelins
+5. Vaugirard
+
+Por otro lado, los 5 barrios con más densidad de colegios son:
+
+
+```{r}
+ordenado_b <- paris_b %>%
+  
+arrange(desc(densidad_cole))
+
+head(ordenado_b,5)
+```
+1. <span style="color:red">**Ménilmontant **</span>
+2. <span style="color:red">**Panthéon **</span>
+3. <span style="color:red">**Buttes-Chaumont**</span>
+4. Opéra 
+5. Buttes-Montmartre
+
+
+# **TP FINAL**
+#### **PARIS**
+###### <span style="color:grey">**París DATA**</span>
+
+
+## **CONECTIVIDAD**
+
+En esta final, procedo a cargar la base de datos de puntos o sitios con disponibilidad de acceso a WIFI. Con la intención de analizar la accesibilidad a  un servicio de internet público por parte de los estudiantes de los distintos colegios.Finalmente incorporare otro tipo de servicios como "comercios".
+
+
+```{r}
+wifi<- st_read("Data/sites-disposant-du-service-paris-wi-fi.geojson", stringsAsFactors = TRUE)
+```
+
+
+Mapeare los datos para analizar su distribución geográfica y poder saber los valores de coordenadas en LONGITUD y LATITUD de las dos bases de datos principales, puntos de wifi y colegios.
+
+
+```{r}
+ggplot()+
+   geom_sf(data = paris) +
+  geom_sf(data=wifi)
+```
+
+```{r}
+colegios_b <- colegios %>%
+  mutate(lat_int = gsub( ",.*" , "", geometry), 
+         lon_int = gsub(".*," , "", geometry ) )
+```
+
+
+```{r}
+colegios_b <- colegios_b %>%
+  mutate(latitude = as.numeric(str_remove(lat_int, "c\\(")), 
+         longitude = as.numeric(str_remove(lon_int, "\\)" )))
+```
+
+```{r}
+wifi_b <- wifi %>%
+  mutate(lat_int = gsub( ",.*" , "", geometry), 
+         lon_int = gsub(".*," , "", geometry ) )
+```
+
+```{r}
+wifi_b <- wifi_b %>%
+  mutate(latitude = as.numeric(str_remove(lat_int, "c\\(")), 
+         longitude = as.numeric(str_remove(lon_int, "\\)" )))
+```
+
+
+Cargare el mapa base de fondo para tener una mejor visualización de París que es la ciudad en la que estoy trabajando y configurare el CRS o sistema de coordenadas de las bases de datos de puntos.
+
+
+```{r}
+library(ggmap)
+```
+
+```{r}
+bbox <- st_bbox(paris)
+class(bbox)
+```
+
+```{r}
+bbox <- as.numeric(bbox)
+class(bbox)
+```
+
+```{r}
+mapa_base <- get_stamenmap(bbox = bbox, 
+                           maptype = "terrain", 
+                           zoom = 12)
+```
+```{r}
+ggmap(mapa_base) + 
+  geom_sf(data = paris, inherit.aes = FALSE, fill = NA) + 
+  geom_sf(data = colegios_b, inherit.aes = FALSE, alpha = 0.5, color = "blue") +
+  geom_sf(data = wifi_b, inherit.aes = FALSE, color = "magenta", size =1) + 
+  theme_void()
+```
+
+```{r}
+colegios_geo <- st_as_sf(colegios_b, coords = c("longitude", "latitude"), crs = 4326)
+wifi_geo <- st_as_sf(wifi_b, coords = c("longitude", "latitude"), crs=4326)
+```
+
+```{r}
+ggmap(mapa_base) + 
+  geom_sf(data = paris, inherit.aes = FALSE, fill = NA, size =1) + 
+  geom_sf(data = colegios_geo,  alpha = 0.5, inherit.aes = FALSE, color = "blue") +
+  geom_sf(data = wifi_geo,  color = "magenta", size = 1, inherit.aes = FALSE) + 
+  theme_void()
+```
+
+
+Antes de realizar los buffer de los colegios, decidí ver el sistema de medidas, al estar en NULL, lo cambie de acuerdo a la ciudad en la que estoy trabajando. De esta forma paso a metros el sistema de medidas lo cual nos permitirá realizar los buffers.
+
+
+```{r}
+st_crs(colegios_geo)$units
+```
+
+```{r}
+st_crs(wifi_geo)$units
+```
+
+```{r}
+colegios_reproyectados <- colegios_geo %>%
+  st_transform(crs = 2154)
+```
+
+```{r}
+wifi_reproyectados <- wifi_geo %>%
+  st_transform(crs = 2154)
+```
+
+```{r}
+st_crs(colegios_reproyectados)$units
+```
+
+
+Realizo un buffer por cada punto de colegio de 500 metros, una distancia considerable de forma peatonal para que los estudiantes puedan acceder a Puntos de WIFI en la proximidad de sus establecimientos educativos.
+
+
+```{r}
+buffer_colegios <- st_buffer(colegios_reproyectados, 500)
+```
+
+```{r}
+ggplot() + 
+  geom_sf(data =buffer_colegios ) + 
+  geom_sf(data =colegios ) 
+```
+
+
+Cruzo los datos de los Puntos WIFI con los buffers de colegios para poder analizar su cantidad.
+
+
+```{r}
+wifi_en_buffer <- st_intersection(wifi_reproyectados, buffer_colegios)
+```
+
+```{r}
+wifi_x_colegios <- wifi_en_buffer %>%
+  st_set_geometry(NULL) %>%
+  group_by(libelle) %>%
+  summarise(cantidad =n())
+
+```
+
+```{r}
+ordenado <- wifi_x_colegios %>%
+  
+arrange(desc(cantidad))
+
+head(ordenado,5)
+```
+
+
+Se puede concluir que los 3 colegios de Paris con mayor cantidad de Puntos WIFI cercanos son Francois Couperin, Charlemagne y Cesar Frank.
+
+
+1. <span style="color:red">**FRANCOIS COUPERIN **</span>
+2. <span style="color:red">**CHARLEMAGNE **</span>
+3. <span style="color:red">**CESAR FRANCK	**</span>
+4. ELSA TRIOLET 
+5. VICTOR HUGO
+
+Luego realizo un LEFT JOIN para unir los datos de la cantidad con la base de datos de colegios por puntos.
+
+
+```{r}
+colegios_geo_b <- left_join(colegios_geo, wifi_x_colegios)
+```
+
+```{r}
+buffer_reproyectado <- buffer_colegios %>%
+  st_transform(crs = 4236)
+```
+
+
+Mapeo las ubicaciones de los colegios con sus respectivos buffers de 500 metros y su relación con los Puntos WIFI.
+
+
+```{r}
+ggmap(mapa_base) + 
+  geom_sf(data = paris, 
+          inherit.aes = FALSE, fill = NA) + 
+  geom_sf(data = buffer_colegios,  
+          fill= "green", size = 0.1, alpha = 0.05, color ="green", inherit.aes = FALSE) + 
+  geom_sf(data = wifi_geo,  
+          alpha = 0.5, inherit.aes = FALSE) +
+  geom_sf(data = colegios_geo_b,  
+          color = "blue", size = 2, inherit.aes = FALSE) + 
+  theme_void()
+```
+
+
+A continuación, mostrare un mapa donde vemos cuales son los colegios con mayor cantidad de Puntos WIFI próximos:
+
+
+```{r}
+ggmap(mapa_base) + 
+  geom_sf(data = paris, inherit.aes = FALSE, fill = NA) + 
+  geom_sf(data = wifi_geo,  alpha = 0.2, inherit.aes = FALSE, color = "red") +
+  geom_sf(data = colegios_geo_b,  aes(color = cantidad), size = 2, inherit.aes = FALSE) + 
+  scale_color_viridis_c( direction = -1) + 
+  labs(title = "Cantidad de puntos wifi a menos de 500m" ) +
+  theme_void()
+```
+
+
+Podríamos decir que los colegios con mayor conectividad pública se encuentran en el centro de la ciudad de París.
+
+Por último, decidí probar otra forma de mostrar los datos, por lo cual cambie el mapa base por uno más neutro.
+
+
+```{r}
+wifi_coord <- wifi_geo %>%
+  select(nom_site) %>%
+  cbind(st_coordinates(wifi_geo))
+```
+
+```{r}
+bbox_x <- st_bbox(paris)
+class(bbox_x)
+```
+
+```{r}
+bbox_x <- as.numeric(bbox_x)
+class(bbox_x)
+```
+
+```{r}
+mapa_base_x <- get_stamenmap(bbox = bbox_x, 
+                           maptype = "toner", 
+                           zoom = 12)
+```
+
+
+A este nuevo mapa base le agregue un mapa de calor o densidad de Puntos WIFI en relación a la ubicación de los colegios en la ciudad de París.
+
+
+```{r}
+ggmap(mapa_base_x)+
+stat_density2d(data = wifi_geo%>% cbind(., st_coordinates(wifi_geo)), 
+               aes(x = X, y = Y, fill = ..density..), 
+                geom = 'tile', contour = paris, alpha = 0.5)+ 
+    geom_sf(data = paris,
+            fill = NA, alpha = 0.5, inherit.aes = FALSE) +
+  geom_sf(data = colegios_geo, size = 2, inherit.aes = FALSE) + 
+  labs(title = "Concentración de puntos wifi",
+       fill = "Densidad") + 
+  scale_fill_viridis_c(option = "A", direction = -1) + 
+  theme_void()
+```
+
+
+De esta forma podemos corroborar de otra forma visual la relación de los datos previos.
+
+La mayor concentración de Puntos WIFI están en el centro de la ciudad de París, posiblemente relacionado con la confluencia de diversos medios de transporte y puntos turísticos en esta zona.
+
+
+## **IMPORTACIÓN DE DATOS**
+
+
+Dado que la página de datos no contiene toda la información de la ciudad, decidí utilizar el servicio de **OSM** Open Street Maps.
+
+En primer lugar, buscare y visualizare la ciudad de París
+
+```{r}
+install.packages("osmdata")
+```
+
+
+```{r}
+
+library(tidyverse)
+
+library(sf)
+
+library(ggmap)
+
+library(osmdata)
+```
+
+```{r}
+bbox_paris <- getbb("Paris, Francia")
+```
+
+```{r}
+mapa_paris<- get_stamenmap(bbox=bbox_paris,
+                              maptype="toner-lite",
+                              zoom=14)
+```
+
+```{r}
+ggmap(mapa_paris)
+```
+
+
+Por otro lado, descargué el perímetro de la ciudad de París utilizado el servidor de **OSM**.
+
+
+```{r}
+poligono_paris <- getbb("Paris, Francia",
+                            format_out = "sf_polygon")
+```
+
+```{r}
+ggmap(mapa_paris)+
+  geom_sf(data=poligono_paris, inherit.aes = FALSE)
+```
+
+
+
+```{r}
+ggmap(mapa_paris)+
+  geom_sf(data=poligono_paris, fill=NA, color="blue", size=1, inherit.aes = FALSE)+
+  labs(title="Ciudad de París",
+       subtitle="Límites de la ciudad de París",
+       caption="Fuente: Open Street Map")+
+  theme_void()
+```
+
+
+Con el contexto delimitado procedo a iniciar un análisis de la relación de diversos tipos de comercios relacionado con la alimentación y la proximidad de los colegios. Es por esto que descargo la información de los comercios de **fast food, cafés y restaurantes** y los visualizo dentro del mapa generado previamente.
+
+
+```{r}
+resto_paris <- opq(bbox_paris) %>%
+  add_osm_feature(key = "amenity", value = c("fast_food", "restaurant","cafe"))
+```
+
+```{r}
+resto_paris
+```
+
+```{r}
+resto_paris <- osmdata_sf(resto_paris)
+```
+
+```{r}
+resto_paris <- resto_paris$osm_points
+dim(resto_paris)
+```
+
+```{r}
+ggmap(mapa_paris)+
+  geom_sf(data=poligono_paris, fill=NA, color="blue", size=1, inherit.aes = FALSE)+
+    geom_sf(data=resto_paris, inherit.aes = FALSE)+
+  labs(title="Comercios",
+       subtitle="París, Francia",
+       caption="Fuente: Open Street Map")+
+  theme_void()
+```
+
+
+Limpio la base de datos, eliminando los valores sin datos de la columna **amenity** pero luego opto por filtrar sólo los valores que me interesan, **fast food, cafés y restaurantes**.
+
+
+```{r}
+filtro<- filter(resto_paris, !is.na(amenity))
+```
+
+```{r}
+filtrob<- filter(resto_paris,amenity=="cafe"|  amenity=="fast_food"| amenity=="restaurant" )
+```
+
+
+Vuelvo a mapear la información para categorizar los valores por tipo de comercio.
+
+
+```{r}
+ggmap(mapa_paris)+
+  geom_sf(data=poligono_paris, fill=NA, color="blue", size=1, inherit.aes = FALSE)+
+    geom_sf(data=filtrob, inherit.aes = FALSE, aes(color=amenity),  alpha = 0.1)+
+  labs(title="Comercios",
+       subtitle="París, Francia",
+       color="Tipo",
+       caption="Fuente: Open Street Map")+
+  
+  theme_void()
+```
+
+
+Como se puede ver, varios valores se encuentran fuera del perimetro de la ciudad de París, por lo tanto selecciono los que me interesan, cruzando los datos con el límite de la ciudad.
+
+
+```{r}
+resto_paris_b <- st_intersection(filtrob,paris)
+```
+```{r}
+dim(resto_paris_b)
+```
+
+```{r}
+ggmap(mapa_paris)+
+  geom_sf(data=poligono_paris, fill=NA, color="blue", size=1, inherit.aes = FALSE)+
+    geom_sf(data=resto_paris_b, inherit.aes = FALSE, aes(color=amenity),  alpha = 0.2)+
+  labs(title="Comercios",
+       subtitle="París, Francia",
+       color="Tipo",
+       caption="Fuente: Open Street Map")+
+  
+  theme_void()
+```
+
+
+Ya con los datos filtrado y mapeados procedo a descubrir la cantidad de cada tipo de comercio.
+
+
+```{r}
+resto_paris_c <-resto_paris_b%>%
+  group_by(amenity) %>%
+  summarise(cantidad=n())
+```
+
+```{r}
+resto_paris_c
+```
+
+
+De esta forma, podemos ver que de los tres tipos de comercios analizados, dentro de la ciudad el que más hay es:
+1. <span style="color:red">**Restaurantes **</span>
+2. <span style="color:red">**Fast food **</span>
+3. <span style="color:red">**Cafeterías**</span>
+
+
+## **GEOCODIFICACIÓN**
+
+
+Finalmente decido cargar la base de datos de **Vivienda social financiada** en París. Sin embargo al visualizar los datos veo que las direcciones estaban muy diferentes, habían varios tipos de direcciones, por este motivo opto por filtrarlas en excel y sólo quedarme con los datos del año 2020. 
+
+```{r}
+install.packages("Rcpp")
+```
+
+```{r}
+viv_social<-read_csv2("Data/logements_sociaux_2020.csv")
+```
+```{r}
+install.packages("tmap")
+install.packages("tmaptools")
+```
+
+
+```{r}
+library("tmap")
+library("tmaptools")
+```
+
+
+Afortunadamente la base de datos ya cuenta con una columna de cantidades de viviendas financiadas por cada ubicación, por lo que sólo ordenare los valores de mayor a menor y visualizare los primeros diez puntos. 
+
+
+```{r}
+cantidad <- viv_social %>% 
+  arrange(desc(`Nombre total de logements financÃ©s`))
+```
+
+```{r}
+head(cantidad, 10)
+```
+
+
+A la dirección original de la base de datos en **Adresse du programme** le agrego el dato de la ciudad y el país para poder geocodificar las ubicaciones con **OSM**.
+
+
+```{r}
+cantidad_b <- cantidad %>%
+  mutate(direccion = paste0(`Adresse du programme`, ", PARIS, France"))
+```
+
+```{r}
+direcciones_localizadas <- geocode_OSM(cantidad_b$direccion, 
+                           as.data.frame = TRUE)
+```
+
+```{r}
+head(direcciones_localizadas)
+```
+
+
+Unire las tablas para poder tener los valores del **query** recientemente generado.
+
+
+```{r}
+cantidad_b_geo <- cantidad_b %>%
+  left_join(direcciones_localizadas, by = c("direccion" = "query"))
+```
+
+```{r}
+cantidad_b_geo
+```
+
+
+Visualizo los datos con **Leaflet**
+
+
+```{r}
+library(leaflet)
+```
+
+```{r}
+leaflet() %>%
+  addTiles() %>% 
+  addCircleMarkers(data = cantidad_b_geo, lng = ~lon, lat = ~lat)
+```
+
+
+Probare crear un tipo de función para poder mapear las ubicaciones.
+
+
+```{r}
+geocode_verbose <- function(x){
+  
+  geocode_direcciones <- geocode_OSM(x, as.data.frame = TRUE) 
+  geocode_direcciones$direccion <- geocode_direcciones$query
+  print(x)
+  df <- select(geocode_direcciones, direccion, lat, lon)
+}
+```
+
+
+Creare una lista para poder utilizar la función.
+
+
+```{r}
+direcciones <- list(cantidad_b$direccion)
+```
+
+```{r}
+direcciones_geo <- map(direcciones, geocode_verbose) %>% 
+  reduce(rbind) 
+```
+
+```{r}
+head(direcciones_geo, 10)
+```
+
+
+Unifico ambas tablas, la nueva con la anterior para luego pasar el paso final.
+
+
+```{r}
+cantidad_b_geo <- left_join(cantidad_b, direcciones_geo)
+head(cantidad_b_geo)
+```
+
+
+Modificare el **CRS** y mapeare los datos generados con la función nuevamente.Por cada punto tendré en cuenta la cantidad por ubicación y que se pueda ver claramente.
+
+
+```{r}
+cantidad_b_geo <- st_as_sf(cantidad_b_geo, coords = c("lon", "lat"), crs = 4326)
+```
+
+```{r}
+leaflet() %>%
+  addTiles() %>% 
+  addCircleMarkers(data = cantidad_b_geo, radius = ~`Nombre total de logements financÃ©s`)
+```
+
+
+Pruebo nuevamente con otro tipo de función por lo que procedo a averiguar la cantidad de datos u observaciones que tengo.
+
+
+```{r}
+1:nrow(cantidad_b)
+```
+
+CREO FUNCION 
+```{r}
+geocode_df <- function(x, direccion = y){
+  ## x es un dataframe, y es el nombre de la variable
+  vector_direcciones <- x$direccion
+  geocode_direcciones <- geocode_OSM(vector_direcciones, as.data.frame = TRUE) 
+  x$lat <- geocode_direcciones$lat
+  x$lon <- geocode_direcciones$lon
+  x
+
+}
+```
+
+```{r}
+direcciones_geo2  <- NULL
+total <- nrow(cantidad_b)
+for(i in 1:total) {
+  direccion_a_geolocalizar <- cantidad_b[i,]
+  direccion_unica_geo <- geocode_df(direccion_a_geolocalizar, direccion)
+  estado <- paste0(i,"/", total, ": ", direccion_unica_geo$direccion )
+  print(estado)
+  direcciones_geo2 <- rbind(direcciones_geo2, direccion_unica_geo)
+}
+```
+```{r}
+head(direcciones_geo2, 10)
+```
+
+
+```{r}
+viv_social_geo <- cantidad_b %>%
+  left_join(direcciones_geo2, by = "direccion" ) %>%
+  filter(!is.na(lat) & !is.na(lon)) %>%
+  st_as_sf(coords = c("lon", "lat"), crs = 4326)
+```
+
+```{r}
+ggplot() + 
+  geom_sf(data = viv_social_geo )
+```
+
+
+Visualizo los datos recién geocodificados teniendo en cuenta la cantidad por cada punto.
+
+
+```{r}
+leaflet() %>%
+  addProviderTiles(provider = "CartoDB.Positron" ) %>%
+  addCircleMarkers(data = viv_social_geo, 
+                   radius = ~`Nombre total de logements financÃ©s.x`, 
+                   color = "red")
+```
+
+
+Por último, con los datos corroborados procedo a la edición para una mejor visualización.
+
+
+```{r}
+paleta <- colorNumeric(palette = c("#c7e9b4", "#1d91c0", "#081d58" ), 
+                       domain = viv_social_geo$`Nombre total de logements financÃ©s.x`)
+
+viv_social_geob <- viv_social_geo %>%
+  mutate(leyenda = paste0( "Tipo de obra: ", `Mode de rÃ©alisation.x`, "</br>", 
+                           "En total se realizaron: " , "<b>",`Nombre total de logements financÃ©s.x`, "</b>","</br>", " Barrio:"  , Arrondissement.x
+    
+  ))
+
+leaflet() %>%
+  addPolygons(data = paris_b, fillColor = NA, color = "grey") %>%
+  addProviderTiles(provider = "CartoDB.Positron" ) %>%
+  addCircleMarkers(data = colegios_geo_b,
+                   color = "olive",
+                   label = ~libelle,
+                   radius = 0.5, 
+                   fillOpacity = 0.4, 
+                   opacity = 0.5)%>%
+  addCircleMarkers(data = viv_social_geob, 
+                   color = ~paleta(`Nombre total de logements financÃ©s.x`), 
+                   popup = ~leyenda,
+                   label = ~direccion,
+                   radius = 4) %>%
+    addLegend(data = viv_social_geob,
+              "bottomright", 
+              pal = paleta, 
+              values = ~`Nombre total de logements financÃ©s.x`,
+              title = "Viviendas financiadas",
+              opacity = 1)
+```
+
+
+Como se puede observar, construí un mapa con los barrios de la ciudad de París, las ubicaciones de las viviendas sociales financiadas y los colegios. Por cada ubicación se puede ver su leyenda, con nombres con datos numéricos y de barrio.
+
+Al comparar los distintos mapas podemos ver que no hay grandes diferencias en cuanto el mapeo de las ubicaciones.
+
